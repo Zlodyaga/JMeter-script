@@ -9,14 +9,16 @@ namespace JMeter_script_program.UIClasses
     internal class UIController
     {
         public List<Button> necessaryButtons;
-        public List<TextBox> necessaryTextBoxes;
+        public TextBox filePathTextBox;
+        public TextBox userInputTextBox;
         public ProgressBar progressBar;
         public Label lblProgress;
 
-        public UIController(List<Button> necessaryButtons, List<TextBox> necessaryTextBoxes, ProgressBar progressBar, Label lblProgress)
+        public UIController(List<Button> necessaryButtons, TextBox filePathTextBox, TextBox userInputTextBox, ProgressBar progressBar, Label lblProgress)
         {
             this.necessaryButtons = necessaryButtons;
-            this.necessaryTextBoxes = necessaryTextBoxes;
+            this.filePathTextBox = filePathTextBox;
+            this.userInputTextBox = userInputTextBox;
             this.progressBar = progressBar;
             this.lblProgress = lblProgress;
         }
@@ -39,13 +41,23 @@ namespace JMeter_script_program.UIClasses
             lblProgress.Text = "Progress: 100%";
         }
 
-        public bool isNecessaryFieldsPopulated()
+        public bool isFilePathTextBoxPopulated()
         {
-            if (necessaryTextBoxes.Any(textBox => string.IsNullOrEmpty(textBox.Text))) {
-                MessageBox.Show("Please populate all necessary fields", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (string.IsNullOrEmpty(filePathTextBox.Text)) {
+                MessageBox.Show("Please populate path to JMX file", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return false;
             }
-            return true;
+            else return true;
+        }
+
+        public bool isInputPathTextBoxPopulated()
+        {
+            if (string.IsNullOrEmpty(userInputTextBox.Text))
+            {
+                MessageBox.Show("Please populate base URL field", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+            else return true;
         }
     }
 }

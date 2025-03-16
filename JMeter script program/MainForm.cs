@@ -56,12 +56,12 @@ namespace JMeter_script_program
             Controls.Add(checkBoxRemoveUserInput);
 
             // Button of start script
-            btnProcessFile = new Button { Text = "Start script", Left = 370, Top = 220, Width = 100, Enabled = false };
+            btnProcessFile = new Button { Text = "Start script", Left = 370, Top = 220, Width = 100, Enabled = true };
             btnProcessFile.Click += async (sender, e) => await ProcessFileAsync();
             Controls.Add(btnProcessFile);
 
             // Restore baseURL button
-            btnRestoreURL = new Button { Text = "Restore base URL", Left = 250, Top = 220, Width = 100, Enabled = false };
+            btnRestoreURL = new Button { Text = "Restore base URL", Left = 250, Top = 220, Width = 100, Enabled = true };
             btnRestoreURL.Click += async (sender, e) => await RestoreFileAsync();
             Controls.Add(btnRestoreURL);
 
@@ -74,8 +74,7 @@ namespace JMeter_script_program
             Controls.Add(lblProgress);
 
             List<Button> necessaryButtons = new List<Button> { btnSelectFile, btnProcessFile, btnRestoreURL };
-            List<TextBox> necessaryFields = new List<TextBox> { txtFilePath, txtUserInput };
-            uiController = new UIController(necessaryButtons, necessaryFields, progressBar, lblProgress);
+            uiController = new UIController(necessaryButtons, txtFilePath, txtUserInput, progressBar, lblProgress);
         }
 
         /* 
@@ -88,15 +87,13 @@ namespace JMeter_script_program
             if (openFileDialog.ShowDialog() == DialogResult.OK)
             {
                 txtFilePath.Text = openFileDialog.FileName;
-                btnProcessFile.Enabled = true;
-                btnRestoreURL.Enabled = true;
             }
         }
 
         // Start script action
         private async Task ProcessFileAsync()
         {
-            if (!uiController.isNecessaryFieldsPopulated())
+            if (!uiController.isFilePathTextBoxPopulated() || !uiController.isInputPathTextBoxPopulated())
             {
                 return;
             }
@@ -107,7 +104,7 @@ namespace JMeter_script_program
             await ProcessFileWithRegexAsync(@"(<HTTPSamplerProxy.*?>.*?</HTTPSamplerProxy>)", match =>
             {
                 string block = match.Value;
-                Match methodMatch = getMethodName(block);
+                Match methodMatch = getTypeRequestName(block);
 
                 if (methodMatch.Success)
                 {
@@ -139,7 +136,7 @@ namespace JMeter_script_program
         // Restore baseURL action
         private async Task RestoreFileAsync()
         {
-            if (!uiController.isNecessaryFieldsPopulated())
+            if (!uiController.isFilePathTextBoxPopulated())
             {
                 return;
             }
@@ -150,7 +147,10 @@ namespace JMeter_script_program
             {
                 string method = match.Groups[1].Value;
                 string endpoint = match.Groups[2].Value;
-                return $"testname=\"{userUrl}{endpoint}\"";
+                if(string.IsNullOrEmpty(userUrl))
+                    return $"testname=\"{endpoint}\"";
+                else
+                    return $"testname=\"{userUrl}{endpoint}\"";
             }, "Base URL successfully restored!");
         }
 
@@ -159,7 +159,7 @@ namespace JMeter_script_program
          */
 
         // Find HTTP type of request (GET, POST and etc.)
-        private Match getMethodName(string block)
+        private Match getTypeRequestName(string block)
         {
             string methodPattern = @"<stringProp name=""HTTPSampler.method"">(.*?)</stringProp>";
             return Regex.Match(block, methodPattern);
