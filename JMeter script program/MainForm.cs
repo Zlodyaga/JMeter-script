@@ -1,3 +1,4 @@
+using JMeter_script_program.UIClasses;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -20,7 +21,7 @@ namespace JMeter_script_program
         private ProgressBar progressBar;
         private Label lblProgress;
         private OpenFileDialog openFileDialog;
-        private string selectedFilePath = "";
+        private UIController uiController;
 
         public MainForm()
         {
@@ -32,7 +33,7 @@ namespace JMeter_script_program
             StartPosition = FormStartPosition.CenterScreen;
 
             // Поле для отображения пути к файлу
-            txtFilePath = new TextBox { Left = 20, Top = 20, Width = 340, ReadOnly = true };
+            txtFilePath = new TextBox { Left = 20, Top = 20, Width = 340, PlaceholderText = "Enter path to JMX file" };
             Controls.Add(txtFilePath);
 
             // Кнопка выбора файла
@@ -78,14 +79,16 @@ namespace JMeter_script_program
                 Filter = "JMX files (*.jmx)|*.jmx|All files (*.*)|*.*",
                 Title = "Choose JMX file"
             };
+            List<Button> necessaryButtons = new List<Button> { btnSelectFile, btnProcessFile, btnRestoreURL };
+            List<TextBox> necessaryFields = new List<TextBox> { txtFilePath, txtUserInput };
+            uiController = new UIController(necessaryButtons, necessaryFields, progressBar, lblProgress);
         }
 
         private void BtnSelectFile_Click(object sender, EventArgs e)
         {
             if (openFileDialog.ShowDialog() == DialogResult.OK)
             {
-                selectedFilePath = openFileDialog.FileName;
-                txtFilePath.Text = selectedFilePath;
+                txtFilePath.Text = openFileDialog.FileName;
                 btnProcessFile.Enabled = true;
                 btnRestoreURL.Enabled = true;
             }
@@ -93,23 +96,19 @@ namespace JMeter_script_program
 
         private async Task ProcessFileAsync()
         {
-            if (string.IsNullOrEmpty(selectedFilePath))
+            if (!uiController.isNecessaryFieldsPopulated())
             {
-                MessageBox.Show("Please select a file.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             string userInput = txtUserInput.Text.Trim();
             bool removeUserInput = checkBoxRemoveUserInput.Checked;
 
-            btnSelectFile.Enabled = false;
-            btnProcessFile.Enabled = false;
-            progressBar.Value = 0;
-            lblProgress.Text = "Progress: 0%";
+            uiController.showStartOfWorkUI();
 
             try
             {
-                string[] lines = await File.ReadAllLinesAsync(selectedFilePath);
+                string[] lines = await File.ReadAllLinesAsync(txtFilePath.Text);
                 int totalLines = lines.Length;
                 int processedLines = 0;
 
@@ -145,19 +144,13 @@ namespace JMeter_script_program
                             }, RegexOptions.IgnoreCase);
                         }
 
-                        Interlocked.Increment(ref processedLines);
-                        int progress = (int)((double)processedLines / totalLines * 100);
-                        Invoke(new Action(() =>
-                        {
-                            progressBar.Value = progress;
-                            lblProgress.Text = $"Progress: {progress}%";
-                        }));
+                        showPercentageOfWork(ref processedLines, totalLines);
 
                         return block;
                     }, RegexOptions.Singleline);
                 });
 
-                await File.WriteAllTextAsync(selectedFilePath, fileContent);
+                await File.WriteAllTextAsync(txtFilePath.Text, fileContent);
                 MessageBox.Show("Script successfully done!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
@@ -166,32 +159,24 @@ namespace JMeter_script_program
             }
             finally
             {
-                btnSelectFile.Enabled = true;
-                btnProcessFile.Enabled = true;
-                progressBar.Value = 100;
-                lblProgress.Text = "Progress: 100%";
+                uiController.showEndOfWorkUI();
             }
         }
 
         private async Task RestoreFileAsync()
         {
-            if (string.IsNullOrEmpty(selectedFilePath) || string.IsNullOrEmpty(txtUserInput.Text))
+            if (!uiController.isNecessaryFieldsPopulated())
             {
-                MessageBox.Show("Please select a file and enter a base URL.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             string userUrl = txtUserInput.Text.Trim();
 
-            btnSelectFile.Enabled = false;
-            btnProcessFile.Enabled = false;
-            btnRestoreURL.Enabled = false;
-            progressBar.Value = 0;
-            lblProgress.Text = "Progress: 0%";
+            uiController.showStartOfWorkUI();
 
             try
             {
-                string[] lines = await File.ReadAllLinesAsync(selectedFilePath);
+                string[] lines = await File.ReadAllLinesAsync(txtFilePath.Text);
                 int totalLines = lines.Length;
                 int processedLines = 0;
 
@@ -206,19 +191,13 @@ namespace JMeter_script_program
                         string endpoint = match.Groups[2].Value;
                         string newTestName = $"testname=\"{userUrl}{endpoint}\"";
 
-                        Interlocked.Increment(ref processedLines);
-                        int progress = (int)((double)processedLines / totalLines * 100);
-                        Invoke(new Action(() =>
-                        {
-                            progressBar.Value = progress;
-                            lblProgress.Text = $"Progress: {progress}%";
-                        }));
+                        showPercentageOfWork(ref processedLines, totalLines);
 
                         return newTestName;
                     }, RegexOptions.IgnoreCase);
                 });
 
-                await File.WriteAllTextAsync(selectedFilePath, fileContent);
+                await File.WriteAllTextAsync(txtFilePath.Text, fileContent);
                 MessageBox.Show("Base URL successfully restored!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
@@ -227,29 +206,26 @@ namespace JMeter_script_program
             }
             finally
             {
-                btnSelectFile.Enabled = true;
-                btnProcessFile.Enabled = true;
-                btnRestoreURL.Enabled = true;
-                progressBar.Value = 100;
-                lblProgress.Text = "Progress: 100%";
+                uiController.showEndOfWorkUI();
             }
         }
 
-        // Найти HTTP-метод (GET, POST и т. д.)
+        // Find HTTP type of request (GET, POST and etc.)
         private Match getMethodName(string block)
         {
             string methodPattern = @"<stringProp name=""HTTPSampler.method"">(.*?)</stringProp>";
             return Regex.Match(block, methodPattern);
         }
-    }
 
-    public static class PlaceholderExtensions
+        private void showPercentageOfWork(ref int processedLines, int totalLines)
         {
-            public static void SetPlaceholderText(this TextBox textBox, string placeholder)
+            Interlocked.Increment(ref processedLines);
+            int progress = (int)((double)processedLines / totalLines * 100);
+            Invoke(new Action(() =>
             {
-                textBox.GotFocus += (s, e) => { if (textBox.Text == placeholder) textBox.Text = ""; };
-                textBox.LostFocus += (s, e) => { if (string.IsNullOrWhiteSpace(textBox.Text)) textBox.Text = placeholder; };
-                textBox.Text = placeholder;
-            }
+                progressBar.Value = progress;
+                lblProgress.Text = $"Progress: {progress}%";
+            }));
         }
+    }
 }
