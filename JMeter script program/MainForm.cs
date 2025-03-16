@@ -1,12 +1,5 @@
 using JMeter_script_program.UIClasses;
-using System;
-using System.Diagnostics;
-using System.IO;
-using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Windows.Forms;
 
 namespace JMeter_script_program
 {
@@ -25,27 +18,34 @@ namespace JMeter_script_program
 
         public MainForm()
         {
-            // Настройка формы
+            // Settings of form
             Text = "JMX script";
             Size = new System.Drawing.Size(500, 320);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
 
-            // Поле для отображения пути к файлу
+            // Input field for showing file path
             txtFilePath = new TextBox { Left = 20, Top = 20, Width = 340, PlaceholderText = "Enter path to JMX file" };
             Controls.Add(txtFilePath);
 
-            // Кнопка выбора файла
+            // Button of choosing JMX file
             btnSelectFile = new Button { Text = "Choose file", Left = 375, Top = 18, Width = 100 };
             btnSelectFile.Click += BtnSelectFile_Click;
             Controls.Add(btnSelectFile);
 
-            // Поле для ввода текста (например, "google.com")
+            // Choosing file dialogue
+            openFileDialog = new OpenFileDialog
+            {
+                Filter = "JMX files (*.jmx)|*.jmx|All files (*.*)|*.*",
+                Title = "Choose JMX file"
+            };
+
+            // Input field for baseURL
             txtUserInput = new TextBox { Left = 20, Top = 60, Width = 340, PlaceholderText = "Enter base URL (e.g., google.com)" };
             Controls.Add(txtUserInput);
 
-            // CheckBox для удаления введённого слова
+            // CheckBox for deleting baseURL
             checkBoxRemoveUserInput = new CheckBox
             {
                 Left = 20,
@@ -55,35 +55,34 @@ namespace JMeter_script_program
             };
             Controls.Add(checkBoxRemoveUserInput);
 
-            // Кнопка обработки файла
+            // Button of start script
             btnProcessFile = new Button { Text = "Start script", Left = 370, Top = 220, Width = 100, Enabled = false };
             btnProcessFile.Click += async (sender, e) => await ProcessFileAsync();
             Controls.Add(btnProcessFile);
 
-            // Кнопка восстановления ссылки
+            // Restore baseURL button
             btnRestoreURL = new Button { Text = "Restore base URL", Left = 250, Top = 220, Width = 100, Enabled = false };
             btnRestoreURL.Click += async (sender, e) => await RestoreFileAsync();
             Controls.Add(btnRestoreURL);
 
-            // Полоса прогресса
+            // Progress bar of progress
             progressBar = new ProgressBar { Left = 20, Top = 160, Width = 450, Height = 20, Minimum = 0, Maximum = 100 };
             Controls.Add(progressBar);
 
-            // Текстовое отображение прогресса
+            // Text view of progress
             lblProgress = new Label { Left = 20, Top = 190, Width = 450, Text = "Progress: 0%" };
             Controls.Add(lblProgress);
 
-            // Диалог выбора файла
-            openFileDialog = new OpenFileDialog
-            {
-                Filter = "JMX files (*.jmx)|*.jmx|All files (*.*)|*.*",
-                Title = "Choose JMX file"
-            };
             List<Button> necessaryButtons = new List<Button> { btnSelectFile, btnProcessFile, btnRestoreURL };
             List<TextBox> necessaryFields = new List<TextBox> { txtFilePath, txtUserInput };
             uiController = new UIController(necessaryButtons, necessaryFields, progressBar, lblProgress);
         }
 
+        /* 
+         * Actions
+         */
+
+        // Choose file action
         private void BtnSelectFile_Click(object sender, EventArgs e)
         {
             if (openFileDialog.ShowDialog() == DialogResult.OK)
@@ -94,6 +93,7 @@ namespace JMeter_script_program
             }
         }
 
+        // Start script action
         private async Task ProcessFileAsync()
         {
             if (!uiController.isNecessaryFieldsPopulated())
@@ -104,111 +104,59 @@ namespace JMeter_script_program
             string userInput = txtUserInput.Text.Trim();
             bool removeUserInput = checkBoxRemoveUserInput.Checked;
 
-            uiController.showStartOfWorkUI();
-
-            try
+            await ProcessFileWithRegexAsync(@"(<HTTPSamplerProxy.*?>.*?</HTTPSamplerProxy>)", match =>
             {
-                string[] lines = await File.ReadAllLinesAsync(txtFilePath.Text);
-                int totalLines = lines.Length;
-                int processedLines = 0;
+                string block = match.Value;
+                Match methodMatch = getMethodName(block);
 
-                string pattern = @"(<HTTPSamplerProxy.*?>.*?</HTTPSamplerProxy>)";
-                string fileContent = string.Join("\n", lines);
-
-                fileContent = await Task.Run(() =>
+                if (methodMatch.Success)
                 {
-                    return Regex.Replace(fileContent, pattern, match =>
+                    string method = methodMatch.Groups[1].Value;
+                    string testnamePattern = @"testname=""([^""]+)""";
+
+                    block = Regex.Replace(block, testnamePattern, match =>
                     {
-                        string block = match.Value;
+                        string testName = match.Groups[1].Value;
 
-                        string methodPattern = @"<stringProp name=""HTTPSampler.method"">(.*?)</stringProp>";
-                        Match methodMatch = getMethodName(block);
-
-                        if (methodMatch.Success)
+                        // Check that testName starts from userInput
+                        if (!string.IsNullOrEmpty(userInput) && testName.StartsWith(userInput, StringComparison.OrdinalIgnoreCase))
                         {
-                            string method = methodMatch.Groups[1].Value;
-
-                            // Шаблон для testname
-                            string testnamePattern = @"testname=""([^""]+)""";
-                            block = Regex.Replace(block, testnamePattern, match =>
+                            if (removeUserInput)
                             {
-                                string testName = match.Groups[1].Value;
-
-                                // Убираем пользовательский ввод, если чекбокс включён
-                                if (removeUserInput && !string.IsNullOrEmpty(userInput))
-                                {
-                                    testName = testName.Replace(userInput, "").Trim();
-                                }
-
-                                return $"testname=\"[{method}] {testName}\"";
-                            }, RegexOptions.IgnoreCase);
+                                testName = testName.Substring(userInput.Length).Trim();
+                            }
+                            return $"testname=\"[{method}] {testName}\"";
                         }
 
-                        showPercentageOfWork(ref processedLines, totalLines);
+                        return match.Value;
+                    }, RegexOptions.IgnoreCase);
+                }
 
-                        return block;
-                    }, RegexOptions.Singleline);
-                });
-
-                await File.WriteAllTextAsync(txtFilePath.Text, fileContent);
-                MessageBox.Show("Script successfully done!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
-            {
-                uiController.showEndOfWorkUI();
-            }
+                return block;
+            }, "Script successfully done!");
         }
 
+        // Restore baseURL action
         private async Task RestoreFileAsync()
         {
             if (!uiController.isNecessaryFieldsPopulated())
             {
                 return;
             }
-
             string userUrl = txtUserInput.Text.Trim();
 
-            uiController.showStartOfWorkUI();
-
-            try
+            await ProcessFileWithRegexAsync(@"testname=""\[(GET|POST|HEAD|PUT|OPTIONS|TRACE|DELETE|PATCH|PROPFIND|PROPPATCH|MKCOL|COPY|MOVE|LOCK|UNLOCK|REPORT|MKCALENDAR|SEARCH)\] (.*?)""",
+            match =>
             {
-                string[] lines = await File.ReadAllLinesAsync(txtFilePath.Text);
-                int totalLines = lines.Length;
-                int processedLines = 0;
-
-                string pattern = @"testname=""\[(GET|POST|HEAD|PUT|OPTIONS|TRACE|DELETE|PATCH|PROPFIND|PROPPATCH|MKCOL|COPY|MOVE|LOCK|UNLOCK|REPORT|MKCALENDAR|SEARCH)\] (.*?)""";
-                string fileContent = string.Join("\n", lines);
-
-                fileContent = await Task.Run(() =>
-                {
-                    return Regex.Replace(fileContent, pattern, match =>
-                    {
-                        string method = match.Groups[1].Value;
-                        string endpoint = match.Groups[2].Value;
-                        string newTestName = $"testname=\"{userUrl}{endpoint}\"";
-
-                        showPercentageOfWork(ref processedLines, totalLines);
-
-                        return newTestName;
-                    }, RegexOptions.IgnoreCase);
-                });
-
-                await File.WriteAllTextAsync(txtFilePath.Text, fileContent);
-                MessageBox.Show("Base URL successfully restored!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
-            {
-                uiController.showEndOfWorkUI();
-            }
+                string method = match.Groups[1].Value;
+                string endpoint = match.Groups[2].Value;
+                return $"testname=\"{userUrl}{endpoint}\"";
+            }, "Base URL successfully restored!");
         }
+
+        /* 
+         * Private methods for actions
+         */
 
         // Find HTTP type of request (GET, POST and etc.)
         private Match getMethodName(string block)
@@ -217,6 +165,7 @@ namespace JMeter_script_program
             return Regex.Match(block, methodPattern);
         }
 
+        // UI show progress
         private void showPercentageOfWork(ref int processedLines, int totalLines)
         {
             Interlocked.Increment(ref processedLines);
@@ -226,6 +175,41 @@ namespace JMeter_script_program
                 progressBar.Value = progress;
                 lblProgress.Text = $"Progress: {progress}%";
             }));
+        }
+        
+        // Regex private function
+        private async Task ProcessFileWithRegexAsync(string pattern, Func<Match, string> processMatch, string successMessage)
+        {
+            uiController.showStartOfWorkUI();
+
+            try
+            {
+                string[] lines = await File.ReadAllLinesAsync(txtFilePath.Text);
+                int totalLines = lines.Length;
+                int processedLines = 0;
+
+                string fileContent = string.Join("\n", lines);
+                fileContent = await Task.Run(() =>
+                {
+                    return Regex.Replace(fileContent, pattern, match =>
+                    {
+                        string modifiedBlock = processMatch(match);
+                        showPercentageOfWork(ref processedLines, totalLines);
+                        return modifiedBlock;
+                    }, RegexOptions.Singleline);
+                });
+
+                await File.WriteAllTextAsync(txtFilePath.Text, fileContent);
+                MessageBox.Show(successMessage, "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                uiController.showEndOfWorkUI();
+            }
         }
     }
 }
